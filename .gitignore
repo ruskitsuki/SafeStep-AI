@@ -1,0 +1,48 @@
+# ============================================================
+#  .gitignore สำหรับโปรเจกต์ C++ / OpenCV / Visual Studio
+# ============================================================
+
+# ---- Visual Studio IDE ----
+.vs/
+*.user
+*.suo
+*.sln.docstates
+*.vcxproj.user
+
+# ---- Build Output ----
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+# ---- Compiled / Linked Artifacts ----
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+
+# ---- OpenCV / Binary ----
+*.bin
+*.dat
+
+# ---- Dataset (รูปภาพที่ augment สร้างขึ้น ไม่ต้อง commit) ----
+ZebraCrossing/dataset/
+
+# ---- Trained Model (ไฟล์ขนาดใหญ่ ควรแชร์แยกต่างหาก) ----
+# ถ้าอยากให้ทีม clone แล้วใช้งานได้เลย → comment บรรทัดนี้ออก
+ZebraCrossing/ZebraModel.xml
+
+# ---- Source Images (รูปต้นแบบ อาจมีขนาดใหญ่) ----
+# zebra_src.jpg
+# road_src.jpg
+
+# ---- Misc ----
+*.log
+Thumbs.db
+.DS_Store
