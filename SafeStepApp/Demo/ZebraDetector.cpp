@@ -67,81 +67,135 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
 {
     if (frame.empty() || model.empty()) return;
 
-    Mat gray, thresh, morph;
-    
+    Mat gray, thresh, edge;
+
     // 1. แปลงเป็นภาพขาวดำ
     cvtColor(frame, gray, COLOR_BGR2GRAY);
 
-    // 2. Thresholding ดึงเฉพาะสีขาวสว่างๆ ออกมา (ปรับค่าเอาตามแสงวิดีโอ)
+    // 2. Thresholding ดึงเฉพาะสีขาว (ปรับแสง)
     threshold(gray, thresh, 180, 255, THRESH_BINARY);
 
-    // 3. Morphological Operations เพื่อเชื่อมโยงทางม้าลายเป็นก้อน (Blob)
-    // ** เปลี่ยน Kernel เป็นขนาดใหญ่ (เช่น 51x51) เพื่อให้แถบม้าลายหลอมรวมเป็นก้อนหน้ากระดานแผ่นเดียว **
-    Mat kernel = getStructuringElement(MORPH_RECT, Size(61, 61)); 
-    morphologyEx(thresh, morph, MORPH_CLOSE, kernel);
+    // 3. ใช้ Morphological ขนาดเล็กแค่ลบ Noise รอยแตกของซี่ (ไม่ได้เชื่อมก้อนแล้ว)
+    Mat kernel = getStructuringElement(MORPH_RECT, Size(5, 5));
+    morphologyEx(thresh, thresh, MORPH_CLOSE, kernel);
 
-    // เอาไว้ดูภาพ debug (ถ้าหาทางม้าลายไม่เจอ สามารถปลดคอมเมนต์เพื่อดูว่าก้อนขาวมันเชื่อมกันมั้ย)
-    // imshow("Zebra Morph Debug", morph);
-
-    // 4. หาขอบ Contours
+    // 4. หาขอบ Contours (หาซี่เดี่ยวๆ)
     vector<vector<Point>> contours;
     vector<Vec4i> hierarchy;
-    findContours(morph, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+    findContours(thresh, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+
+    vector<Rect> validStripes;
+    double screen_area = frame.rows * frame.cols;
 
     for (size_t i = 0; i < contours.size(); i++)
     {
-        // กรองขนาดพื้นที่ (Contour Area) ที่ต้องใหญ่พอสมควรสำหรับทางม้าลายในมุมกล้อง
         double area = contourArea(contours[i]);
-        if (area < 8000) continue; // ทางม้าลายจริงจะเต็มจอและมี Area ใหญ่มาก (ปรับขึ้นเป็น 8000+)
+        Rect rect = boundingRect(contours[i]);
 
-        Rect bounding_rect = boundingRect(contours[i]);
-
-        // ** แก้ไข Logic คัดกรองใหม่ (รองรับกล่องขนาดใหญ่ที่เกิดจากการรวบเส้น) **
-        // 1. ความสูงของ Box ต้องมากพอ: กล่องทางม้าลายรวมก้อนแล้วควรจะหนาพอสมควร
-        if (bounding_rect.height < 50) continue;
-
-        // 2. สัดส่วนภาพ (Aspect Ratio):
-        // กล่องทางม้าลายรวมก้อนมักจะแบนแนวนอน (ครอบทั้งถนน) แต่อาจจะมีความหนามาก
-        float aspectRatio = (float)bounding_rect.width / (float)bounding_rect.height;
-        if (aspectRatio < 0.5 || aspectRatio > 10.0) continue; // เปิดกว้างขึ้นไม่ตัดทิ้งง่ายๆ
-
-        // 3. ตำแหน่งจุดศูนย์กลาง: ควรอยู่ค่อนไปทางพื้นถนน
-        int center_y = bounding_rect.y + (bounding_rect.height / 2);
-        if (center_y < frame.rows / 3) continue; // หย่อนให้ขึ้นไปได้ถึง 1 ใน 3 ของจอบน เผื่อกล่องใหญ่มาก
-
-        // กัน BoundingBox เกินขอบเขตภาพ
-        if (bounding_rect.x < 0) bounding_rect.x = 0;
-        if (bounding_rect.y < 0) bounding_rect.y = 0;
-        if (bounding_rect.x + bounding_rect.width >= frame.cols) bounding_rect.width = frame.cols - bounding_rect.x - 1;
-        if (bounding_rect.y + bounding_rect.height >= frame.rows) bounding_rect.height = frame.rows - bounding_rect.y - 1;
-
-        // 5. ตัดรูปเตรียมตรวจสอบ Model (Crop)
-        Mat cropImg = frame(bounding_rect);
-        
-        // 6. สกัดคุณลักษณะแล้วดึงไปใส่โมเดล
-        Mat featureData = ExtractFeature(cropImg);
-        
-        Mat predict_responses;
-        model->predict(featureData, predict_responses); // ทายผล
-
-        // เช็คหาว่าความน่าจะเป็นตกที่ Class 0 หรือ Class 1 มากกว่า
-        float max_prob = predict_responses.at<float>(0, 0);
-        int max_class_id = 0;
-        for (int c = 1; c < predict_responses.cols; c++)
+        // ** กรองหาเฉพาะสิ่งที่ "หน้าตาเหมือน 1 ซี่ทางม้าลาย" แบนๆ ยาวๆ หรือเฉียงๆ **
+        if (area > 300 && area < screen_area * 0.15) // ขนาดซี่กำลังดี ไม่ใช่เส้นด้าย และไม่ใช่กำแพงยักษ์
         {
-            if (predict_responses.at<float>(0, c) > max_prob)
+            float aspectRatio = (float)rect.width / (float)rect.height;
+
+            // ซี่ทางม้าลายส่วนใหญ่จะกว้างกว่าความสูง
+            if (aspectRatio > 0.8 && aspectRatio < 8.0) 
             {
-                max_prob = predict_responses.at<float>(0, c);
-                max_class_id = c;
+                // ต้องไม่ได้ลอยอยู่บนฟ้า
+                if (rect.y > frame.rows / 4) 
+                {
+                    validStripes.push_back(rect);
+                    // วาดกรอบสีน้ำเงินเล็กๆ ดูซี่ (ลบคอมเมนต์ได้ถ้าอยากดู debug)
+                    // rectangle(frame, rect, Scalar(255, 0, 0), 2);
+                }
             }
         }
+    }
 
-        // สมมติคลาสรับ 1 คือทางม้าลาย (จากที่เรากำหนดตอนเขียน Train)
-        if (max_class_id == 1)
+    // 5. นำซี่ทั้งหมดมาหลอมรวมกัน (Merge Stripes)
+    // ก่อนรวม: ต้องผ่านด่านตรวจสอบว่าซี่เหล่านี้หน้าตาเหมือนทางม้าลายจริงๆ
+
+    // ด่าน 1: ต้องมีซี่อย่างน้อย 3 ซี่ขึ้นไป
+    if (validStripes.size() >= 3)
+    {
+        // ด่าน 2: แต่ละซี่ต้องกว้างพอ (อย่างน้อย 30% ของจอ = คาดว่าพาดเต็มถนน)
+        // กรองซี่แคบๆ อย่างตัวอักษรรายตัวออกก่อน
+        vector<Rect> wideStripes;
+        for (const auto& s : validStripes) {
+            if (s.width >= frame.cols * 0.30) {
+                wideStripes.push_back(s);
+            }
+        }
+        if (wideStripes.size() < 3) return; // ไม่พอ
+
+        // ด่าน 3: ซี่ต้องมีความกว้างใกล้เคียงกัน (สม่ำเสมอคล้ายลาย)
+        float totalWidth = 0;
+        for (const auto& s : wideStripes) totalWidth += s.width;
+        float avgWidth = totalWidth / wideStripes.size();
+        int passSimilar = 0;
+        for (const auto& s : wideStripes) {
+            if (abs(s.width - avgWidth) < avgWidth * 0.5f) passSimilar++;
+        }
+        if (passSimilar < (int)wideStripes.size() * 0.7) return; // ส่วนใหญ่ต้องใกล้เคียงกัน
+
+        // ด่าน 4: ซี่ต้องกระจายตัวในแกน Y (เรียงซ้อนกัน ไม่ใช่วางเรียงข้างๆ กัน)
+        // หาค่า Y min/max ดูว่าช่วง Y ที่กลุ่มซี่กินนั้นกว้างกว่าซี่เดี่ยวๆ กี่เท่า
+        int y_min = frame.rows, y_max = 0;
+        float avgHeight = 0;
+        for (const auto& s : wideStripes) {
+            if (s.y < y_min) y_min = s.y;
+            if (s.y + s.height > y_max) y_max = s.y + s.height;
+            avgHeight += s.height;
+        }
+        avgHeight /= wideStripes.size();
+        int y_span = y_max - y_min;
+        // ช่วง Y ต้องกินพื้นที่มากกว่า 2.5 เท่าของซี่เดี่ยว (= มีซี่หลายชั้นซ้อนกัน)
+        if (y_span < avgHeight * 2.5f) return;
+
+        // ผ่านทุกด่านแล้ว! รวบซี่เป็นกล่องเดียว
+        int min_x = frame.cols, min_y = frame.rows;
+        int max_x = 0, max_y = 0;
+        for (const auto& stripe : wideStripes)
         {
-            // วาดกรอบสีเขียวล้อมรอบ
-            rectangle(frame, bounding_rect, Scalar(0, 255, 0), 3);
-            putText(frame, "Zebra Crossing", Point(bounding_rect.x, bounding_rect.y - 10), FONT_HERSHEY_SIMPLEX, 0.8, Scalar(0, 255, 0), 2);
+            if (stripe.x < min_x) min_x = stripe.x;
+            if (stripe.y < min_y) min_y = stripe.y;
+            if (stripe.x + stripe.width > max_x) max_x = stripe.x + stripe.width;
+            if (stripe.y + stripe.height > max_y) max_y = stripe.y + stripe.height;
+        }
+
+        Rect bounding_rect(min_x, min_y, max_x - min_x, max_y - min_y);
+
+        int padding = 15;
+        bounding_rect.x = max(0, bounding_rect.x - padding);
+        bounding_rect.y = max(0, bounding_rect.y - padding);
+        bounding_rect.width = min(frame.cols - bounding_rect.x, bounding_rect.width + 2 * padding);
+        bounding_rect.height = min(frame.rows - bounding_rect.y, bounding_rect.height + 2 * padding);
+
+        if (bounding_rect.width > 0 && bounding_rect.height > 0)
+        {
+            // 6. ส่งรูปในกรอบรวมให้ AI ทายผลครั้งสุดท้าย
+            Mat cropImg = frame(bounding_rect);
+            Mat featureData = ExtractFeature(cropImg);
+
+            Mat predict_responses;
+            model->predict(featureData, predict_responses);
+
+            float max_prob = predict_responses.at<float>(0, 0);
+            int max_class_id = 0;
+            for (int c = 1; c < predict_responses.cols; c++)
+            {
+                if (predict_responses.at<float>(0, c) > max_prob)
+                {
+                    max_prob = predict_responses.at<float>(0, c);
+                    max_class_id = c;
+                }
+            }
+
+            if (max_class_id == 1) // 1 คือคลาสทางม้าลาย
+            {
+                rectangle(frame, bounding_rect, Scalar(0, 255, 0), 4);
+                putText(frame, "Zebra Crossing", Point(bounding_rect.x, bounding_rect.y - 10),
+                        FONT_HERSHEY_SIMPLEX, 0.9, Scalar(0, 255, 0), 3);
+            }
         }
     }
 }
