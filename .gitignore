@@ -36,7 +36,7 @@ ZebraCrossing/dataset/
 
 # ---- Trained Model (ไฟล์ขนาดใหญ่ ควรแชร์แยกต่างหาก) ----
 # ถ้าอยากให้ทีม clone แล้วใช้งานได้เลย → comment บรรทัดนี้ออก
-ZebraCrossing/ZebraModel.xml
+# ZebraCrossing/ZebraModel.xml
 
 # ---- Source Images (รูปต้นแบบ อาจมีขนาดใหญ่) ----
 # zebra_src.jpg

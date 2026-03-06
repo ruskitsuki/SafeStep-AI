@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="SafeStepApp/SafeStepApp.vcxproj" />
+  <Project Path="SafeStepApp.vcxproj" Id="960f7f4b-c151-4201-9cd7-3fc532ddf40a" />
 </Solution>
