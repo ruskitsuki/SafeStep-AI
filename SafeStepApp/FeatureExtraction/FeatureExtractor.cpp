@@ -10,144 +10,128 @@ using namespace cv;
 using namespace std;
 namespace fs = std::filesystem;
 
-// ฟังก์ชันสกัดคุณลักษณะ 1 มิติ (ตาม Lab: LprFeature)
+// ===========================================================================
+// [FIX 6] สกัด Feature 160 ค่า: 120 col-sum + 40 row-sum
+// (เหมือน ZebraDetector::ExtractFeature แต่เขียนลงไฟล์ CSV แทน)
+// ===========================================================================
 void gen_feature_input(const Mat& image, const string& output_filename)
 {
-    float max_val = 0;
-    vector<int> col_sums(image.cols, 0);
-
     Mat greyMat;
-    if (image.channels() > 1) {
+    if (image.channels() > 1)
         cvtColor(image, greyMat, COLOR_BGR2GRAY);
-    } else {
+    else
         greyMat = image.clone();
-    }
 
-    // คำนวณผลรวมความสว่างในแต่ละคอลัมน์
-    for (int i = 0; i < greyMat.cols; i++)
-    {
-        int column_sum = 0;
+    // --- Column sums (120 values) ---
+    float max_col = 1.0f;
+    vector<int> col_sums(greyMat.cols, 0);
+    for (int i = 0; i < greyMat.cols; i++) {
         for (int k = 0; k < greyMat.rows; k++)
-        {
-            column_sum += greyMat.at<unsigned char>(k, i);
-        }
-        col_sums[i] = column_sum;
-        if (col_sums[i] > max_val) {
-            max_val = (float)col_sums[i];
-        }
+            col_sums[i] += greyMat.at<unsigned char>(k, i);
+        if ((float)col_sums[i] > max_col) max_col = (float)col_sums[i];
     }
 
-    // เลี่ยงการหารด้วย 0
-    if (max_val == 0) max_val = 1.0f;
-
-    // บันทึกเป็น Normalize feature (0.0 ถึง 1.0) ลงไฟล์
-    ofstream myfile;
-    myfile.open(output_filename, ios::app);
-    for (int i = 0; i < image.cols; i++)
-    {
-        float v = (float)col_sums[i] / max_val;
-        myfile << v << ",";
+    // --- Row sums (40 values) ---
+    float max_row = 1.0f;
+    vector<int> row_sums(greyMat.rows, 0);
+    for (int k = 0; k < greyMat.rows; k++) {
+        for (int i = 0; i < greyMat.cols; i++)
+            row_sums[k] += greyMat.at<unsigned char>(k, i);
+        if ((float)row_sums[k] > max_row) max_row = (float)row_sums[k];
     }
-    myfile << endl;
+
+    // บันทึก: col_sums normalize ก่อน แล้วตามด้วย row_sums normalize
+    ofstream myfile(output_filename, ios::app);
+    for (int i = 0; i < greyMat.cols; i++)
+        myfile << ((float)col_sums[i] / max_col) << ",";
+    for (int k = 0; k < greyMat.rows; k++)
+        myfile << ((float)row_sums[k] / max_row) << ",";
+    myfile << "\n";
     myfile.close();
 }
 
-// ฟังก์ชันระบุ Label (One-hot encoding)
-// out: คลาสเป้าหมาย (0 = ไม่ใช่ทางม้าลาย, 1 = ทางม้าลาย)
-// num: จำนวนคลาสทั้งหมด (ในกรณีนี้คือ 2)
+// ===========================================================================
+// Label (One-hot encoding): 0 = non-zebra, 1 = zebra
+// ===========================================================================
 void gen_feature_output(const string& output_filename, int out, int num = 2)
 {
-    ofstream myfile;
-    myfile.open(output_filename, ios::app);
+    ofstream myfile(output_filename, ios::app);
     for (int i = 0; i < num; i++)
-    {
-        if (i == out)
-            myfile << 1 << ",";
-        else
-            myfile << 0 << ",";
-    }
-    myfile << endl;
+        myfile << (i == out ? 1 : 0) << ",";
+    myfile << "\n";
     myfile.close();
 }
 
+// ===========================================================================
 int main(int argc, char** argv)
 {
-    // ---------------------------------------------------------------------------------
-    // ใช้ Relative Path เพื่อให้รันที่เครื่องอื่นได้ (อิงจากตำแหน่งไฟล์ .vcxproj ของ Visual Studio)
-    // หากรันแล้วไม่เจอโฟลเดอร์ ให้แก้ไข Working Directory ใน VS:
-    // คลิกขวา Project -> Properties -> Debugging -> Working Directory -> ตั้งค่าเป็น $(ProjectDir)
-    // ---------------------------------------------------------------------------------
-    string images_dir_pos = "../images/"; 
-    string images_dir_neg = "../images_non_zebra/"; 
-    string feature_file = "features.txt";
-    string label_file = "labels.txt";
+    string images_dir_pos = "../images/";
+    string images_dir_neg = "../images_non_zebra/";
+    string feature_file   = "features.txt";
+    string label_file     = "labels.txt";
 
-    // ล้างไฟล์เก่าถ้ามี
-    ofstream ofs(feature_file, ios::trunc); ofs.close();
-    ofstream ols(label_file, ios::trunc); ols.close();
+    // ล้างไฟล์เก่า
+    ofstream(feature_file, ios::trunc).close();
+    ofstream(label_file,   ios::trunc).close();
 
-    cout << "--- SafeStep-AI Feature Extraction ---" << endl;
+    cout << "--- SafeStep-AI Feature Extraction ---\n";
+    cout << "Output: 160 features per image (120 col-sum + 40 row-sum)\n\n";
 
     int success_count = 0;
-    Size fixedSize(120, 40);
+    Size fixedSize(120, 40);  // resize ก่อนสกัด feature (เหมือน ZebraDetector)
 
-    // -------------------------------------------------------------
-    // ** 1. ประมวลผลข้อมูล Positive (ทางม้าลาย: Label = 1) **
-    // -------------------------------------------------------------
-    cout << "Reading POSITIVE images from: " << images_dir_pos << endl;
+    // ─────────── Positive (ทางม้าลาย: Label = 1) ───────────
+    cout << "Reading POSITIVE images from: " << images_dir_pos << "\n";
     if (fs::exists(images_dir_pos)) {
-        for (const auto& entry : fs::directory_iterator(images_dir_pos))
-        {
-            string file_path = entry.path().string();
-            if (file_path.find(".jpg") == string::npos && file_path.find(".png") == string::npos) continue; 
+        for (const auto& entry : fs::directory_iterator(images_dir_pos)) {
+            string fp = entry.path().string();
+            if (fp.find(".jpg") == string::npos &&
+                fp.find(".png") == string::npos) continue;
 
-            Mat src = imread(file_path, IMREAD_COLOR);
+            Mat src = imread(fp, IMREAD_COLOR);
             if (src.empty()) continue;
 
-            Mat resized_src;
-            resize(src, resized_src, fixedSize);
-            
-            gen_feature_input(resized_src, feature_file);
-            gen_feature_output(label_file, 1, 2); // 1 = ทางม้าลาย
+            Mat resized;
+            resize(src, resized, fixedSize);
+            gen_feature_input(resized, feature_file);
+            gen_feature_output(label_file, 1, 2);
             success_count++;
 
-            if (success_count % 100 == 0) cout << "Extracted " << success_count << " POSITIVE patterns..." << endl;
+            if (success_count % 100 == 0)
+                cout << "Extracted " << success_count << " POSITIVE patterns...\n";
         }
     } else {
-        cerr << "Warning: Positive Directory does not exist -> " << images_dir_pos << endl;
+        cerr << "Warning: Positive directory not found -> " << images_dir_pos << "\n";
     }
 
-    // -------------------------------------------------------------
-    // ** 2. ประมวลผลข้อมูล Negative (ไม่ใช่ทางม้าลาย: Label = 0) **
-    // -------------------------------------------------------------
-    cout << "Reading NEGATIVE images from: " << images_dir_neg << endl;
+    // ─────────── Negative (ไม่ใช่ทางม้าลาย: Label = 0) ───────────
+    cout << "Reading NEGATIVE images from: " << images_dir_neg << "\n";
     if (fs::exists(images_dir_neg)) {
         int neg_count = 0;
-        for (const auto& entry : fs::directory_iterator(images_dir_neg))
-        {
-            string file_path = entry.path().string();
-            if (file_path.find(".jpg") == string::npos && file_path.find(".png") == string::npos) continue; 
+        for (const auto& entry : fs::directory_iterator(images_dir_neg)) {
+            string fp = entry.path().string();
+            if (fp.find(".jpg") == string::npos &&
+                fp.find(".png") == string::npos) continue;
 
-            Mat src = imread(file_path, IMREAD_COLOR);
+            Mat src = imread(fp, IMREAD_COLOR);
             if (src.empty()) continue;
 
-            Mat resized_src;
-            resize(src, resized_src, fixedSize);
-            
-            gen_feature_input(resized_src, feature_file);
-            gen_feature_output(label_file, 0, 2); // 0 = ไม่ใช่ทางม้าลาย
+            Mat resized;
+            resize(src, resized, fixedSize);
+            gen_feature_input(resized, feature_file);
+            gen_feature_output(label_file, 0, 2);
             success_count++;
             neg_count++;
 
-            if (neg_count % 100 == 0) cout << "Extracted " << neg_count << " NEGATIVE patterns..." << endl;
+            if (neg_count % 100 == 0)
+                cout << "Extracted " << neg_count << " NEGATIVE patterns...\n";
         }
     } else {
-        cerr << "Warning: Negative Directory does not exist -> " << images_dir_neg << endl;
-        cerr << "Please create folder '" << images_dir_neg << "' and put non-zebra images inside!" << endl;
+        cerr << "Warning: Negative directory not found -> " << images_dir_neg << "\n";
     }
 
-    cout << "\nDone! Successfully extracted features from " << success_count << " total images." << endl;
-    cout << "Outputs saved to: " << feature_file << " and " << label_file << endl;
-
+    cout << "\nDone! Total: " << success_count << " samples.\n";
+    cout << "Saved to: " << feature_file << " and " << label_file << "\n";
+    cout << "Each row = 160 features (120 col + 40 row)\n";
     return 0;
 }

@@ -7,80 +7,120 @@ using namespace std;
 
 int main(int argc, char** argv)
 {
-    cout << "--- SafeStep-AI Live Demo ---" << endl;
+    cout << "--- SafeStep-AI Live Demo ---\n";
+    cout << "Keys: [ESC] Exit  |  [D] Toggle Debug Windows\n\n";
 
     ZebraDetector detector;
 
-    // ---------------------------------------------------------------------------------
-    // ใช้ Relative Path อิงจากตำแหน่ง Working Directory ของ Visual Studio
-    // ---------------------------------------------------------------------------------
-    string modelPath = "ZebraModel.xml"; 
-    
+    string modelPath = "ZebraModel.xml";
     if (!detector.LoadModel(modelPath))
     {
-        cerr << "Failed to start. Model not found!" << endl;
+        cerr << "Failed to start. Model not found!\n";
         system("pause");
         return -1;
     }
 
     // ---------------------------------------------------------------------------------
-    // ให้ผู้ใช้สามารถใส่ Path ของวิดีโอผ่าน Command Line Argument ได้
-    // หรือถ้าไม่ใส่โปรแกรมจะถามให้พิมพ์ Path วิดีโอเอง
+    // รับ Path วิดีโอจาก Command Line หรือถามผู้ใช้
     // ---------------------------------------------------------------------------------
     string videoSource;
     if (argc > 1) {
         videoSource = argv[1];
     } else {
-        cout << "Enter video path (or press '0' for Webcam): ";
+        cout << "Enter video path (or '0' for Webcam): ";
         getline(cin, videoSource);
     }
-    
-    // ลบเครื่องหมาย " (Double Quote) ที่ติดมาตอน Copy as path ใน Windows
-    if (!videoSource.empty() && videoSource.front() == '"' && videoSource.back() == '"') {
-        videoSource = videoSource.substr(1, videoSource.length() - 2);
-    }
-    
-    VideoCapture cap;
-    
-    // ลองเปิดเป็นหมายเลข (Webcam) ก่อน ถ้าไม่เจอ/ไม่ได้พิมพ์ตัวเลข ก็เปิดเป็นไฟล์ Path
-    if (videoSource.length() == 1 && isdigit(videoSource[0])) {
-        cap.open(stoi(videoSource));
-    } else {
-        // ใช้ไฟล์ Path เช่น "video.mp4" หรือ "C:/user/video.mp4"
-        cap.open(videoSource);
-    }
 
-    if (!cap.isOpened())
-    {
-        cerr << "Error: Could not open video stream." << endl;
+    // ลบ Double Quote ที่ติดมาจาก "Copy as path" ใน Windows
+    if (!videoSource.empty() && videoSource.front() == '"' && videoSource.back() == '"')
+        videoSource = videoSource.substr(1, videoSource.length() - 2);
+
+    VideoCapture cap;
+    if (videoSource.length() == 1 && isdigit(videoSource[0]))
+        cap.open(stoi(videoSource));
+    else
+        cap.open(videoSource);
+
+    if (!cap.isOpened()) {
+        cerr << "Error: Could not open video stream.\n";
         system("pause");
         return -1;
     }
 
-    cout << "Press 'ESC' to exit." << endl;
+    // ---------------------------------------------------------------------------------
+    // [FIX 5] อ่าน frame แรกเพื่อรู้ขนาด → ถามผู้ใช้ว่าจะเปิด perspective หรือเปล่า
+    // ---------------------------------------------------------------------------------
+    Mat firstFrame;
+    cap >> firstFrame;
+    if (firstFrame.empty()) {
+        cerr << "Error: Empty video source.\n";
+        return -1;
+    }
 
-    Mat frame;
+    // [OPT] ถ่ายจากมือถือมักจะใหญ่ (1080p, 4K) ทำให้ประมวลผลช้า ย่อภาพก่อน
+    if (firstFrame.cols > 1280) {
+        float scale = 1280.0f / firstFrame.cols;
+        resize(firstFrame, firstFrame, Size(), scale, scale);
+    }
+
+    cout << "\nFrame size: " << firstFrame.cols << " x " << firstFrame.rows << "\n";
+    cout << "\nPress [ESC] to exit, [D] to toggle Debug Windows.\n";
+
+    // ─────────── Setup Main Window ───────────
+    namedWindow("SafeStep-AI Demo", WINDOW_NORMAL);
+    int mainH = 600;
+    int mainW = (int)((float)firstFrame.cols / firstFrame.rows * mainH);
+    resizeWindow("SafeStep-AI Demo", mainW, mainH);
+
+    // ─────────── Main Loop ───────────
+    Mat frame = firstFrame;
     while (true)
     {
-        cap >> frame;
-        if (frame.empty())
-        {
-            cout << "End of video stream!" << endl;
+        if (frame.empty()) {
+            cout << "End of video stream!\n";
             break;
         }
 
-        // นำเข้าขั้นตอนการดึงรูป สแกน วาดกรอบ
+        // [OPT] ย่อ frame ตาม firstFrame ทุกครั้งที่อ่าน
+        if (frame.cols > 1280) {
+            float scale = 1280.0f / frame.cols;
+            resize(frame, frame, Size(), scale, scale);
+        }
+
         detector.DetectAndDraw(frame);
+
+        // Overlay: แสดง status ของ Debug
+        string dbgStatus = detector.IsDebugMode()
+                           ? "[D] Debug: ON"
+                           : "[D] Debug: OFF";
+        putText(frame, dbgStatus, Point(10, 30),
+                FONT_HERSHEY_SIMPLEX, 0.7, Scalar(0, 200, 255), 2);
 
         imshow("SafeStep-AI Demo", frame);
 
-        char c = (char)waitKey(30); 
-        if (c == 27) // เลิกเล่นเมื่อกดปุ่ม ESC
-            break;
+        // เปลี่ยนจาก 30ms เป็น 1ms เพื่อให้เล่นวิดีโอเร็วที่สุดเท่าที่ CPU รับไหว
+        char c = (char)waitKey(1);
+        if (c == 27) break;  // ESC
+
+        // [DEBUG] กด D เพื่อ toggle หน้าต่าง debug (intermediate steps)
+        if (c == 'd' || c == 'D') {
+            bool nextDebug = !detector.IsDebugMode();
+            detector.SetDebugMode(nextDebug);
+            if (!nextDebug) {
+                // ปิดหน้าต่าง debug ทั้งหมดอย่างปลอดภัย
+                try { cv::destroyWindow("Debug 1: L-Channel + CLAHE"); } catch (...) {}
+                try { cv::destroyWindow("Debug 2: ROI Trapezoid Mask"); } catch (...) {}
+                try { cv::destroyWindow("Debug 3: Threshold"); } catch (...) {}
+                try { cv::destroyWindow("Debug 4: Morph Close & Fill"); } catch (...) {}
+                try { cv::destroyWindow("Debug 5: Valid Stripes"); } catch (...) {}
+            }
+        }
+
+        // อ่าน frame ถัดไป
+        cap >> frame;
     }
 
     cap.release();
     destroyAllWindows();
-
     return 0;
 }
