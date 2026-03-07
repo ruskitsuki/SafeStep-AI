@@ -9,9 +9,7 @@ using namespace cv;
 using namespace std;
 using namespace cv::ml;
 
-// ===========================================================================
 // อ่านข้อมูล CSV ลงใน Mat
-// ===========================================================================
 int read_data_from_csv(const string& filename, Mat& data, int n_samples, int n_attributes)
 {
     float tmpf;
@@ -28,12 +26,10 @@ int read_data_from_csv(const string& filename, Mat& data, int n_samples, int n_a
     return 1;
 }
 
-// ===========================================================================
 // Train และ Save โมเดล ANN
-// ===========================================================================
 void train_ann_model(const string& data_in, const string& data_out, const string& model_path)
 {
-    // [FIX 6] in_attributes = 160 (120 col-sum + 40 row-sum)
+    // in_attributes = 160 (120 col-sum + 40 row-sum)
     // ต้องตรงกับ FeatureExtractor.cpp และ ZebraDetector::ExtractFeature
     int in_attributes  = 160;
     int out_attributes = 2;
@@ -57,7 +53,6 @@ void train_ann_model(const string& data_in, const string& data_out, const string
     if (!read_data_from_csv(data_out, responses, samples, out_attributes)) return;
 
     // โครงสร้าง: Input(160) → Hidden(20) → Output(2)
-    // เพิ่ม Hidden nodes จาก 15 → 20 เนื่องจาก input มากขึ้น (160 vs 120)
     int layer_sz[] = { in_attributes, 20, out_attributes };
     int nlayers    = (int)(sizeof(layer_sz) / sizeof(layer_sz[0]));
     Mat layer_sizes(1, nlayers, CV_32S, layer_sz);
@@ -82,7 +77,6 @@ void train_ann_model(const string& data_in, const string& data_out, const string
     cout << "Model saved to " << model_path << "\n";
 }
 
-// ===========================================================================
 int main(int argc, char** argv)
 {
     cout << "--- SafeStep-AI ANN Training ---\n";

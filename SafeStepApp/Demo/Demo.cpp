@@ -20,9 +20,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    // ---------------------------------------------------------------------------------
     // รับ Path วิดีโอจาก Command Line หรือถามผู้ใช้
-    // ---------------------------------------------------------------------------------
     string videoSource;
     if (argc > 1) {
         videoSource = argv[1];
@@ -47,20 +45,12 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    // ---------------------------------------------------------------------------------
-    // [FIX 5] อ่าน frame แรกเพื่อรู้ขนาด → ถามผู้ใช้ว่าจะเปิด perspective หรือเปล่า
-    // ---------------------------------------------------------------------------------
+    // อ่าน frame แรกเพื่อเช็คว่าวิดีโอเปิดติดไหม และใช้คำนวณสัดส่วนหน้าต่างโปรแกรม
     Mat firstFrame;
     cap >> firstFrame;
     if (firstFrame.empty()) {
         cerr << "Error: Empty video source.\n";
         return -1;
-    }
-
-    // [OPT] ถ่ายจากมือถือมักจะใหญ่ (1080p, 4K) ทำให้ประมวลผลช้า ย่อภาพก่อน
-    if (firstFrame.cols > 1280) {
-        float scale = 1280.0f / firstFrame.cols;
-        resize(firstFrame, firstFrame, Size(), scale, scale);
     }
 
     cout << "\nFrame size: " << firstFrame.cols << " x " << firstFrame.rows << "\n";
@@ -81,7 +71,7 @@ int main(int argc, char** argv)
             break;
         }
 
-        // [OPT] ย่อ frame ตาม firstFrame ทุกครั้งที่อ่าน
+        // ย่อภาพเพื่อไม่ให้กิน CPU เยอะเกินไป
         if (frame.cols > 1280) {
             float scale = 1280.0f / frame.cols;
             resize(frame, frame, Size(), scale, scale);

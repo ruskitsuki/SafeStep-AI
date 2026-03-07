@@ -1,48 +1,83 @@
-# ============================================================
-#  .gitignore สำหรับโปรเจกต์ C++ / OpenCV / Visual Studio
-# ============================================================
+# Visual Studio / C++ / OpenCV Project .gitignore
 
-# ---- Visual Studio IDE ----
+# Visual Studio specific files and directories
 .vs/
-*.user
-*.suo
-*.sln.docstates
-*.vcxproj.user
+.vscode/
 
-# ---- Build Output ----
+# Build results and compiled artifacts
 [Dd]ebug/
+[Dd]ebugPublic/
 [Rr]elease/
+[Rr]eleases/
 x64/
 x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
 [Bb]in/
 [Oo]bj/
+[Ll]og/
+[Oo]ut/
+build/
 
-# ---- Compiled / Linked Artifacts ----
-*.obj
-*.pch
-*.pdb
-*.ilk
-*.exp
-*.lib
-*.dll
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userprefs
+*.sln.docstates
+
+# Executables, libraries, and object files
 *.exe
+*.dll
+*.lib
+*.so
+*.a
+*.ilk
+*.sys
+*.obj
+*.o
+*.out
 
-# ---- OpenCV / Binary ----
-*.bin
-*.dat
-
-# ---- Dataset (รูปภาพที่ augment สร้างขึ้น ไม่ต้อง commit) ----
-ZebraCrossing/dataset/
-
-# ---- Trained Model (ไฟล์ขนาดใหญ่ ควรแชร์แยกต่างหาก) ----
-# ถ้าอยากให้ทีม clone แล้วใช้งานได้เลย → comment บรรทัดนี้ออก
-# ZebraCrossing/ZebraModel.xml
-
-# ---- Source Images (รูปต้นแบบ อาจมีขนาดใหญ่) ----
-# zebra_src.jpg
-# road_src.jpg
-
-# ---- Misc ----
+# Debug symbols and performance profiling
+*.pdb
+*.idb
+*.ipdb
+*.iobj
+*.tlb
+*.tli
+*.tlh
+*.tmp
 *.log
-Thumbs.db
-.DS_Store
+*.vspscc
+*.vssscc
+*.pidb
+*.svclog
+*.scc
+*.metagen
+*.pgc
+*.pgd
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+
+# Visual Studio 2015+ cache/options directory
+**/.vs/**
+
+# Optional: Ignore large datasets or videos if you are testing with many
+# Uncomment below if you want to skip tracking large media files
+# *.mp4
+# *.avi
+# *.mkv
+# *.mov
+# *.jpg
+# *.png
+images/
+images_non_zebra/
+# test_videos/

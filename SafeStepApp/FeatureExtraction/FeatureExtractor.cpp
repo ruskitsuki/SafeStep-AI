@@ -10,10 +10,7 @@ using namespace cv;
 using namespace std;
 namespace fs = std::filesystem;
 
-// ===========================================================================
-// [FIX 6] สกัด Feature 160 ค่า: 120 col-sum + 40 row-sum
-// (เหมือน ZebraDetector::ExtractFeature แต่เขียนลงไฟล์ CSV แทน)
-// ===========================================================================
+// สกัด Feature 160 ค่า: 120 col-sum + 40 row-sum
 void gen_feature_input(const Mat& image, const string& output_filename)
 {
     Mat greyMat;
@@ -22,7 +19,7 @@ void gen_feature_input(const Mat& image, const string& output_filename)
     else
         greyMat = image.clone();
 
-    // --- Column sums (120 values) ---
+    // Column sums (120 values)
     float max_col = 1.0f;
     vector<int> col_sums(greyMat.cols, 0);
     for (int i = 0; i < greyMat.cols; i++) {
@@ -31,7 +28,7 @@ void gen_feature_input(const Mat& image, const string& output_filename)
         if ((float)col_sums[i] > max_col) max_col = (float)col_sums[i];
     }
 
-    // --- Row sums (40 values) ---
+    // Row sums (40 values)
     float max_row = 1.0f;
     vector<int> row_sums(greyMat.rows, 0);
     for (int k = 0; k < greyMat.rows; k++) {
@@ -50,9 +47,7 @@ void gen_feature_input(const Mat& image, const string& output_filename)
     myfile.close();
 }
 
-// ===========================================================================
 // Label (One-hot encoding): 0 = non-zebra, 1 = zebra
-// ===========================================================================
 void gen_feature_output(const string& output_filename, int out, int num = 2)
 {
     ofstream myfile(output_filename, ios::app);
@@ -62,7 +57,6 @@ void gen_feature_output(const string& output_filename, int out, int num = 2)
     myfile.close();
 }
 
-// ===========================================================================
 int main(int argc, char** argv)
 {
     string images_dir_pos = "../images/";
@@ -80,7 +74,7 @@ int main(int argc, char** argv)
     int success_count = 0;
     Size fixedSize(120, 40);  // resize ก่อนสกัด feature (เหมือน ZebraDetector)
 
-    // ─────────── Positive (ทางม้าลาย: Label = 1) ───────────
+    // Positive (ทางม้าลาย: Label = 1)
     cout << "Reading POSITIVE images from: " << images_dir_pos << "\n";
     if (fs::exists(images_dir_pos)) {
         for (const auto& entry : fs::directory_iterator(images_dir_pos)) {
@@ -104,7 +98,7 @@ int main(int argc, char** argv)
         cerr << "Warning: Positive directory not found -> " << images_dir_pos << "\n";
     }
 
-    // ─────────── Negative (ไม่ใช่ทางม้าลาย: Label = 0) ───────────
+    // Negative (ไม่ใช่ทางม้าลาย: Label = 0)
     cout << "Reading NEGATIVE images from: " << images_dir_neg << "\n";
     if (fs::exists(images_dir_neg)) {
         int neg_count = 0;

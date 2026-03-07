@@ -7,14 +7,13 @@ using namespace cv;
 using namespace std;
 using namespace cv::ml;
 
-// ===========================================================================
 ZebraDetector::ZebraDetector()  {}
 ZebraDetector::~ZebraDetector() {}
 
 void ZebraDetector::SetDebugMode(bool enabled) {
     debugMode = enabled;
     if (debugMode) {
-        // [FIX] ตั้งค่าหน้าต่าง Debug ให้ย่อ-ขยายได้ และกำหนดขนาดเริ่มต้นให้เล็กพอมองเห็นพร้อมกัน
+        // ตั้งค่าหน้าต่าง Debug ให้ย่อ-ขยายได้ และกำหนดขนาดเริ่มต้นให้เล็กพอมองเห็นพร้อมกัน
         int winW = 350;
         int winH = 350;
 
@@ -35,7 +34,6 @@ void ZebraDetector::SetDebugMode(bool enabled) {
     }
 }
 
-// ===========================================================================
 bool ZebraDetector::LoadModel(const string& modelPath)
 {
     model = StatModel::load<ANN_MLP>(modelPath);
@@ -47,8 +45,7 @@ bool ZebraDetector::LoadModel(const string& modelPath)
     return true;
 }
 
-// ===========================================================================
-// [FIX 6] ExtractFeature: 120 col-sum + 40 row-sum = 160 features
+// ExtractFeature: 120 col-sum + 40 row-sum = 160 features
 // ต้องตรงกับ train.cpp ที่ใช้ in_attributes = 160
 Mat ZebraDetector::ExtractFeature(const Mat& cropImage)
 {
@@ -61,7 +58,7 @@ Mat ZebraDetector::ExtractFeature(const Mat& cropImage)
     else
         greyMat = resizedImg.clone();
 
-    // --- Column sums (120 values) ---
+    // Column sums (120 values)
     vector<int> col_sums(greyMat.cols, 0);
     float max_col = 1.0f;
     for (int i = 0; i < greyMat.cols; i++) {
@@ -70,7 +67,7 @@ Mat ZebraDetector::ExtractFeature(const Mat& cropImage)
         if ((float)col_sums[i] > max_col) max_col = (float)col_sums[i];
     }
 
-    // --- Row sums (40 values) ---
+    // Row sums (40 values)
     vector<int> row_sums(greyMat.rows, 0);
     float max_row = 1.0f;
     for (int k = 0; k < greyMat.rows; k++) {
@@ -90,7 +87,6 @@ Mat ZebraDetector::ExtractFeature(const Mat& cropImage)
     return data;
 }
 
-// ===========================================================================
 // Helper: หาค่าเฉลี่ยของ Rect จาก deque (สำหรับ Temporal Smoothing)
 static Rect AverageRect(const deque<Rect>& rects)
 {
@@ -107,23 +103,22 @@ static Rect AverageRect(const deque<Rect>& rects)
     return Rect(ax, ay, ar - ax, ab - ay);
 }
 
-// ===========================================================================
-// ด่านกรองซี่ 4 ด่าน + ANN predict
+// ANN predict
 bool ZebraDetector::TryDetectZebra(const Mat& workFrame,
                                    const vector<Rect>& validStripes,
                                    Rect& outRect)
 {
-    // ด่าน 1: ต้องมีซี่ >= 3
+    // ต้องมีซี่ >= 3
     if ((int)validStripes.size() < 3) return false;
 
-    // ด่าน 2: [FIX 2] แต่ละซี่กว้าง >= 15% จอ (ลดจาก 30% → รองรับทางม้าลายไกล/เฉียง)
+    // แต่ละซี่กว้าง >= 15% จอ รองรับทางม้าลายไกล/เฉียง)
     vector<Rect> wideStripes;
     for (const auto& s : validStripes)
         if (s.width >= workFrame.cols * 0.15)
             wideStripes.push_back(s);
     if ((int)wideStripes.size() < 3) return false;
 
-    // ด่าน 3: ความกว้างซี่สม่ำเสมอกัน (70% ของซี่ต้องอยู่ใน ±50% ของค่าเฉลี่ย)
+    // ความกว้างซี่สม่ำเสมอกัน (70% ของซี่ต้องอยู่ใน ±50% ของค่าเฉลี่ย)
     float totalW = 0;
     for (const auto& s : wideStripes) totalW += (float)s.width;
     float avgW = totalW / (float)wideStripes.size();
@@ -132,7 +127,7 @@ bool ZebraDetector::TryDetectZebra(const Mat& workFrame,
         if (fabsf((float)s.width - avgW) < avgW * 0.5f) passSimilar++;
     if (passSimilar < (int)((float)wideStripes.size() * 0.7f)) return false;
 
-    // ด่าน 4: ซี่ต้องกระจายใน Y มากกว่า 2.5x ความสูงเฉลี่ยของซี่
+    // ซี่ต้องกระจายใน Y มากกว่า 2.5x ความสูงเฉลี่ยของซี่
     int y_min = workFrame.rows, y_max = 0;
     float avgH = 0;
     for (const auto& s : wideStripes) {
@@ -142,11 +137,8 @@ bool ZebraDetector::TryDetectZebra(const Mat& workFrame,
     }
     avgH /= (float)wideStripes.size();
     if ((float)(y_max - y_min) < avgH * 2.5f) return false;
-    // ด่าน 5: [ถูกถอดออก] กฎซ้อนทับกันแกน X ถูกเอาออก เพราะกล้องมือถืออาจจะเอียง (Roll) 
-    // ถ้ากล้องเอียง ซี่ทางม้าลายจะเฉียงเป็นบันไดวน ไม่ตั้งตรงเป๊ะๆ
-    // เราจะไว้ใจ "ด่าน 3: ขนาดต้องใกล้เคียงกัน" อย่างเดียวพอครับ (ถ้าขนาดพอกัน ต่อให้เยื้องกันก็ยอมให้ผ่าน)
 
-    // ด่าน 6: [ใหม่] กฎระยะห่างสมดุล (Balanced Spacing / Y-Axis Gap) 
+    // ระยะห่างสมดุล (Balanced Spacing / Y-Axis Gap) 
     // เรียงซี่ม้าลายจากบนลงล่างยอดเนินแกน Y (จากระยะไกลมาระยะใกล้)
     vector<Rect> sortedStripes = wideStripes;
     sort(sortedStripes.begin(), sortedStripes.end(), [](const Rect& a, const Rect& b) {
@@ -166,12 +158,11 @@ bool ZebraDetector::TryDetectZebra(const Mat& workFrame,
         if (gap > avgStripeH * 0.2f) validGaps++;
     }
     
-    // 6.1 เช็คขั้นบันได (สกัดกั้นบันไดปูน)
+    // เช็คขั้นบันได
     if (sortedStripes.size() > 3 && validGaps < ((int)gaps.size() / 2)) return false;
 
-    // 6.2 เช็คความสมดุลของความถี่และจังหวะ (Periodic Pattern)
+    // เช็คความสมดุลของความถี่และจังหวะ (Periodic Pattern)
     if (gaps.size() >= 2) {
-        // โหมด First-Person (มุมมองแอปมือถือ): 
         // หลัก Perspective "ยิ่งไกลรูปยิ่งเล็ก Gapยิ่งแคบ" "ยิ่งใกล้รูปยิ่งใหญ่ Gapยิ่งกว้าง"
         // กฎ: "ผลรวมGapฝั่งไกล (ครึ่งบน) จะต้องไม่กว้างกว่า Gap ฝั่งใกล้ (ครึ่งล่าง) เด็ดขาด!"
         int topHalfGapSum = 0, bottomHalfGapSum = 0;
@@ -179,7 +170,7 @@ bool ZebraDetector::TryDetectZebra(const Mat& workFrame,
         for(int i = 0; i < half; i++) topHalfGapSum += gaps[i];
         for(int i = gaps.size() - half; i < gaps.size(); i++) bottomHalfGapSum += gaps[i];
         
-        // ถ้าระยะห่างช่วงไกล ดันกว้างกว่าช่วงใกล้ผิดวิสัย (เช่นเกิดจากเศษรอยแตกบนถนน) ให้ไล่ตะเพิดทิ้ง
+        // ถ้าระยะห่างช่วงไกล ดันกว้างกว่าช่วงใกล้ผิดวิสัย (เช่นเกิดจากเศษรอยแตกบนถนน) ให้ทิ้ง
         if (topHalfGapSum > bottomHalfGapSum * 1.5f) return false;
     }
 
@@ -218,7 +209,7 @@ bool ZebraDetector::TryDetectZebra(const Mat& workFrame,
     return true;
 }
 
-// ===========================================================================
+// DetectAndDraw
 void ZebraDetector::DetectAndDraw(Mat& frame)
 {
     if (frame.empty() || model.empty()) return;
@@ -227,43 +218,30 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
 
     Mat lab, thresh;
     
-    // [NEW FIX] 1. ลาก่อน RGB... สวัสดี LAB (Color Space) 
-    // แยก "ความสว่าง" ออกจาก "สี" เด็ดขาด เพื่อลดปัญหาเงาต้นไม้/แสงแดดสะท้อน
+    // LAB (Color Space) 
+    // แยกความสว่าง ออกจากสี เพื่อลดปัญหาเงาต้นไม้/แสงแดดสะท้อน
     cvtColor(workFrame, lab, COLOR_BGR2Lab);
     vector<Mat> channels;
     split(lab, channels); 
     Mat l_channel = channels[0]; // ดึงมาเฉพาะชาแนล L (Lightness)
     
-    // [EDIT] พี่เบิงอยากให้ "ไม่นำส่วนที่เป็นสีมาคิด" (เอา Color Penalty ออก)
-    // ตรงนี้เราจะเลิกทำโทษ A (แดง-เขียว) และ B (น้ำเงิน-เหลือง) 
-    // หมายความว่า ต่อให้เป็นทางม้าลายสีเหลือง หรือถ่ายติดกล้องเพี้ยนติดสีแดง ก็จะเห็นสว่างเท่าเดิม
-    /*
-    Mat a_diff, b_diff, colorPenalty;
-    absdiff(channels[1], Scalar(128), a_diff); // ยิ่งเป็นสีแดง/เขียวจัด ยิ่งค่าสูง
-    absdiff(channels[2], Scalar(128), b_diff); // ยิ่งเป็นสีเหลือง/น้ำเงินจัด ยิ่งค่าสูง
-    add(a_diff, b_diff, colorPenalty);
-    colorPenalty *= 1.5; // ขยายความรุนแรงบทลงโทษ
-    subtract(l_channel, colorPenalty, l_channel);
-    */
-
-    // [NEW FIX] 2. CLAHE (Local Contrast) เร่งความคมชัดดึงทางม้าลายที่แอบในเงาออกมา
+    // CLAHE (Local Contrast) เร่งความคมชัดดึงทางม้าลายที่แอบในเงาออกมา
     Ptr<CLAHE> clahe = createCLAHE(3.0, Size(8, 8));
     clahe->apply(l_channel, l_channel);
 
     if (debugMode) imshow("Debug 1: L-Channel + CLAHE", l_channel);
 
-    // [NEW FIX] 3. ลบ Noise พื้นผิว (ลายกระเบื้อง, ลายแผ่นเหล็กนูนๆ) 
-    // เปลี่ยนจาก GaussianBlur มาใช้ Median Blur เพราะมันเก่งเรื่องการลบรอยขรุขระ โดยที่ "ยังรักษาเส้นขอบที่คมชัดไว้ได้ (Edge Preserving)"
+    // ลบ Noise พื้นผิว (ลายกระเบื้อง, ลายแผ่นเหล็กนูนๆ) 
+    // ใช้ Median Blur เพราะสามารถลบรอยขรุขระ โดยที่ยังรักษาเส้นขอบที่คมชัดไว้ได้ (Edge Preserving)
     // ทางม้าลายจะได้ไม่เบลอจนโดนคัดทิ้ง
     medianBlur(l_channel, l_channel, 7);
 
-    // [NEW FIX] 4. เลิกตีขลุมด้วย Otsu -> เปลี่ยนเป็น Adaptive Thresholding
-    // แก้ปัญหาภาพที่มีแดดเปรี้ยงฝั่งซ้าย และร่มเงาฝั่งขวา ให้พิจารณาแยกกันแบบจุดต่อจุด (หน้าต่างสแกน 101x101)
-    // ลดความซาดิสม์ลงเหลือ -12 (สว่างกว่าเพื่อนบ้านแค่ 12 ระดับก็ผ่าน) เพราะเราใช้ Median Blur ถูจนเนียนระดับนึงแล้ว
+    // Adaptive Thresholding
+    // แก้ปัญหาภาพที่มีแดดฝั่งซ้าย และร่มเงาฝั่งขวา ให้พิจารณาแยกกันแบบจุดต่อจุด (หน้าต่างสแกน 101x101)
     adaptiveThreshold(l_channel, thresh, 255, ADAPTIVE_THRESH_GAUSSIAN_C, 
                       THRESH_BINARY, 101, -12);
 
-    // [FIX 3] Trapezoid ROI mask
+    // Trapezoid ROI mask
     {
         Mat mask = Mat::zeros(frame.size(), CV_8U);
         vector<Point> roi_pts = {
@@ -276,7 +254,7 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
         fillPoly(mask, polys, Scalar(255));
         bitwise_and(thresh, mask, thresh);
 
-        // [DEBUG] วาด trapezoid ลงบน frame copy เพื่อแสดงขอบเขต ROI
+        // วาด trapezoid ลงบน frame copy เพื่อแสดงขอบเขต ROI
         if (debugMode) {
             Mat roiViz = frame.clone();
             // วาดเส้น trapezoid สีแดง
@@ -294,7 +272,7 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
         }
     }
 
-    // [DEBUG] หน้าต่าง 3: Threshold
+    // Threshold
     if (debugMode) imshow("Debug 3: Threshold", thresh);
 
     // เปิด (Erode -> Dilate): ลบล้างรอยเชื่อมบางๆ ระหว่างซี่ตอนแสงจ้า
@@ -302,7 +280,7 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
     morphologyEx(thresh, thresh, MORPH_OPEN, kernelOpen);
 
     // ปิด (Dilate -> Erode): เชื่อมรอยแหว่งภายในซี่ตัวมันเอง
-    // [NEW FIX] ปรับ Kernel แนวนอนยาวๆ (31x5) เพื่อเชื่อมขอบซ้าย-ขวาที่แหว่ง โดยไม่พาซี่บน-ล่างมาติดกัน
+    // ปรับ Kernel แนวนอนยาวๆ (31x5) เพื่อเชื่อมขอบซ้าย-ขวาที่แหว่ง โดยไม่พาซี่บน-ล่างมาติดกัน
     Mat kernelClose = getStructuringElement(MORPH_RECT, Size(31, 5));
     morphologyEx(thresh, thresh, MORPH_CLOSE, kernelClose);
 
@@ -311,11 +289,10 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
     vector<vector<Point>> contours;
     findContours(thresh, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
 
-    // [NEW FIX] เทคนิค "อุดรูรั่ว (Fill Holes)"
-    // ถมสีขาวลงไปในกรอบของวัตถุทั้งหมด เพื่อให้ซี่ที่สีซีดตรงกลางกลับมาตันเต็มก้อน (สอบผ่านด่าน Density)
+    // Fill Holes ถมสีขาวลงไปในกรอบของวัตถุทั้งหมด เพื่อให้ซี่ที่สีซีดตรงกลางกลับมาตันเต็มก้อน 
     drawContours(thresh, contours, -1, Scalar(255), FILLED);
 
-    // [DEBUG] หน้าต่าง 4: หลัง Morphological Open + Close + Fill Holes
+    // หลัง Morphological Open + Close + Fill Holes
     if (debugMode) imshow("Debug 4: Morph Close & Fill", thresh);
 
     vector<Rect> validStripes;
@@ -327,10 +304,9 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
 
         // ปรับ Area เริ่มต้นให้เล็กลง (100) สำหรับทางม้าลายที่อยู่ไกลมากๆ หรือโดนเงาตัดจนแหว่ง
         // Area ของ 1 ซี่ ไม่ควรใหญ่เกิน 15% ของหน้าจอ
-        // Area ของ 1 ซี่ ไม่ควรใหญ่เกิน 15% ของหน้าจอ
         if (area > 100 && area < screen_area * 0.15) {
             float ar = (float)rect.width / (float)rect.height;
-            // [STRICT FIX] ขยับ Aspect Ratio เป็น 1.5f (ต้องเป็นสี่เหลี่ยมผืนผ้าแนวนอนชัดเจน ไม่เอาทรงจตุรัสหรือแนวตั้ง)
+            // ขยับ Aspect Ratio เป็น 1.5f (ต้องเป็นสี่เหลี่ยมผืนผ้าแนวนอนชัดเจน ไม่เอาทรงจตุรัสหรือแนวตั้ง)
             if (ar > 1.5f && ar < 20.0f && rect.y > frame.rows / 6) {
                 
                 // 1. เช็คความทึบในกรอบสี่เหลี่ยม (Density)
@@ -339,7 +315,7 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
                 int  totalPixels = rect.width * rect.height;
                 float density    = (float)whitePixels / (float)totalPixels;
                 
-                // 2. [STRICT FIX] เช็คทรงตัน (Solidity) ป้องกันพวกรูปทรงแฉกตัว X, ตัว L หรือวงแหวน
+                // 2. เช็คทรงตัน (Solidity) ป้องกันพวกรูปทรงแฉกตัว X, ตัว L หรือวงแหวน
                 vector<Point> hull;
                 convexHull(contour, hull);
                 double hull_area = contourArea(hull);
@@ -353,8 +329,8 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
         }
     }
 
-    // [DEBUG] หน้าต่าง 5: Valid Stripes (กรอบสีน้ำเงิน) บน workFrame
-    // แสดงซี่ที่ผ่านเกณฑ์ area/aspect/Y แต่ยังไม่ผ่านด่านกรอง 1-4
+    //  Valid Stripes (กรอบสีน้ำเงิน) บน workFrame
+    // แสดงซี่ที่ผ่านเกณฑ์ area/aspect/Y แต่ยังไม่ผ่านการกรอง
     if (debugMode) {
         Mat stripeViz = workFrame.clone();
         for (const auto& s : validStripes)
@@ -365,17 +341,12 @@ void ZebraDetector::DetectAndDraw(Mat& frame)
         imshow("Debug 5: Valid Stripes", stripeViz);
     }
 
-    // ─────────── Detect Zebra ───────────
-
-    Rect detectedInWork;
-    bool found = TryDetectZebra(workFrame, validStripes, detectedInWork);
+    // Detect Zebra Crosswalk
 
     Rect detectedRect;
-    if (found) {
-        detectedRect = detectedInWork;
-    }
+    bool found = TryDetectZebra(workFrame, validStripes, detectedRect);
 
-    // ─────────── [FIX 4] Temporal Smoothing ───────────
+    // Temporal Smoothing
 
     // push ประวัติ frame นี้ (sentinel Rect(0,0,0,0) = ไม่พบ)
     if (found && detectedRect.width > 0 && detectedRect.height > 0)
