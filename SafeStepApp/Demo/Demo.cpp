@@ -29,7 +29,7 @@ int main(int argc, char** argv)
         getline(cin, videoSource);
     }
 
-    // ลบ Double Quote ที่ติดมาจาก "Copy as path" ใน Windows
+    // ลบ Double Quote ที่ติดมาจาก Copy as path
     if (!videoSource.empty() && videoSource.front() == '"' && videoSource.back() == '"')
         videoSource = videoSource.substr(1, videoSource.length() - 2);
 
@@ -62,6 +62,12 @@ int main(int argc, char** argv)
     int mainW = (int)((float)firstFrame.cols / firstFrame.rows * mainH);
     resizeWindow("SafeStep-AI Demo", mainW, mainH);
 
+    // เช็ค FPS ของวิดีโอเพื่อใช้คำนวณการเล่นความเร็วปกติ
+    double fps = cap.get(CAP_PROP_FPS);
+    if (fps <= 0 || fps > 120) fps = 30.0; // ค่าเริ่มต้นถ้าอ่านไม่ติด หรือได้ค่าแปลกๆ
+    int64 startTime = getTickCount();
+    long long frameCount = 1;
+
     // ─────────── Main Loop ───────────
     Mat frame = firstFrame;
     while (true)
@@ -88,8 +94,19 @@ int main(int argc, char** argv)
 
         imshow("SafeStep-AI Demo", frame);
 
-        // เปลี่ยนจาก 30ms เป็น 1ms เพื่อให้เล่นวิดีโอเร็วที่สุดเท่าที่ CPU รับไหว
-        char c = (char)waitKey(1);
+        // -- คำนวณเวลาเพื่อควบคุมความเร็วให้พอดีกับความจริง --
+        double elapsedSec = (getTickCount() - startTime) / getTickFrequency();
+        long long expectedFrame = (long long)(elapsedSec * fps);
+
+        int delayMs = 1;
+        if (frameCount > expectedFrame) {
+            // ถ้าประมวลผลเร็วกว่าเวลาวิดีโอ ให้รอ (หน่วงเวลา) เพื่อให้ความเร็วพอดี
+            double targetTimeSec = (double)frameCount / fps;
+            delayMs = (int)((targetTimeSec - elapsedSec) * 1000.0);
+            if (delayMs < 1) delayMs = 1;
+        }
+
+        char c = (char)waitKey(delayMs);
         if (c == 27) break;  // ESC
 
         // [DEBUG] กด D เพื่อ toggle หน้าต่าง debug (intermediate steps)
@@ -106,8 +123,17 @@ int main(int argc, char** argv)
             }
         }
 
-        // อ่าน frame ถัดไป
+        // ถ้าประมวลผลช้ากว่าวิดีโอ (สโลวโมชัน) ให้รันผ่าน (Skip) เฟรมที่ไม่ทันทิ้งไปเพื่อตามเวลาจริง
+        elapsedSec = (getTickCount() - startTime) / getTickFrequency();
+        expectedFrame = (long long)(elapsedSec * fps);
+        while (frameCount < expectedFrame) {
+            if (!cap.grab()) break; // ถ้า Grab ไม่ได้แปลว่าสุดวิดีโอแล้ว
+            frameCount++;
+        }
+
+        // อ่าน frame ถัดไปที่จะนำมาแสดงและประมวลผล
         cap >> frame;
+        frameCount++;
     }
 
     cap.release();
