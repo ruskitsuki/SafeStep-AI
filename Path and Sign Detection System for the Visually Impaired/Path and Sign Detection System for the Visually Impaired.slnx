@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Path and Sign Detection System for the Visually Impaired/Path and Sign Detection System for the Visually Impaired.vcxproj" />
+</Solution>
